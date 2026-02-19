@@ -2,198 +2,94 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StreamTV Pro - v2.0</title>
+    <title>TV Online Directo</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        :root { --accent: #e50914; --bg: #050505; --card: #1a1a1a; }
-        body { font-family: 'Segoe UI', Arial; background: var(--bg); color: white; margin: 0; overflow-x: hidden; }
-        
-        /* Navbar */
-        .navbar { padding: 15px 4%; background: rgba(0,0,0,0.9); position: fixed; width: 100%; top:0; z-index: 1000; border-bottom: 1px solid #222; }
-        
-        /* Contenedor Principal */
-        .main-content { margin-top: 100px; padding: 0 4%; }
-        
-        /* Buscador Mejorado */
-        .search-wrapper { position: relative; max-width: 600px; margin: 0 auto 30px; }
-        #searchInput { 
-            width: 100%; padding: 15px 20px; border-radius: 30px; border: 1px solid #444;
-            background: #111; color: white; font-size: 1rem; outline: none;
-        }
-        #searchInput:focus { border-color: var(--accent); box-shadow: 0 0 10px rgba(229, 9, 20, 0.3); }
-
-        /* Categorías */
-        .category-bar { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 20px; scrollbar-width: none; }
-        .cat-btn { background: var(--card); color: #888; border: 1px solid #333; padding: 8px 20px; border-radius: 20px; cursor: pointer; white-space: nowrap; }
-        .cat-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
-
-        /* Grid */
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px; }
-        .card { background: var(--card); border-radius: 8px; overflow: hidden; cursor: pointer; transition: 0.3s; border: 1px solid #222; }
-        .card:hover { transform: translateY(-5px); border-color: #555; }
-        .card img { width: 100%; height: 100px; object-fit: contain; background: #000; padding: 10px; }
-        .card-body { padding: 10px; text-align: center; }
-        .card-body h3 { font-size: 0.85rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-        /* Modal y Video */
-        #playerOverlay { 
-            display: none; position: fixed; top:0; left:0; width:100%; height:100%; 
-            background: rgba(0,0,0,0.95); z-index: 2000; flex-direction: column; align-items: center; justify-content: center;
-        }
-        .video-container { width: 90%; max-width: 900px; position: relative; background: #000; border-radius: 10px; overflow: hidden; }
-        video { width: 100%; aspect-ratio: 16/9; display: block; }
-        .close-player { position: absolute; top: -40px; right: 0; background: none; border: none; color: white; font-size: 30px; cursor: pointer; }
-        .status-msg { margin-top: 15px; color: #aaa; font-size: 0.9rem; }
+        body { font-family: sans-serif; background: #111; color: white; text-align: center; }
+        .search-box { padding: 15px; width: 80%; max-width: 500px; border-radius: 25px; border: none; margin: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; padding: 20px; }
+        .card { background: #222; padding: 10px; border-radius: 10px; cursor: pointer; border: 1px solid #333; }
+        .card:hover { border-color: red; }
+        .card img { width: 100%; height: 80px; object-fit: contain; }
+        #player-container { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); flex-direction: column; align-items: center; justify-content: center; z-index: 1000; }
+        video { width: 90%; max-width: 800px; background: #000; }
+        .close { background: red; color: white; padding: 10px 20px; border: none; cursor: pointer; margin-top: 10px; }
     </style>
 </head>
 <body>
 
-<div class="navbar">
-    <h2 style="color: var(--accent); margin: 0;">STREAM<span style="color:white">TV</span></h2>
-</div>
+    <h1>Buscador TV Online</h1>
+    <input type="text" id="q" class="search-box" placeholder="Busca un canal (ej: NASA, DW, News)...">
+    
+    <div id="grid" class="grid"></div>
 
-<div class="main-content">
-    <div class="search-wrapper">
-        <input type="text" id="searchInput" placeholder="Buscar canales por nombre o país...">
+    <div id="player-container">
+        <video id="video" controls></video>
+        <button class="close" onclick="cerrar()">CERRAR REPRODUCTOR</button>
+        <p id="status" style="font-size: 0.8rem; color: gray; margin-top: 10px;"></p>
     </div>
-
-    <div class="category-bar" id="categoryBar">
-        <button class="cat-btn active" onclick="filterByCat('Todos', this)">Todos</button>
-    </div>
-
-    <div id="channelGrid" class="grid"></div>
-</div>
-
-<div id="playerOverlay">
-    <div class="video-container">
-        <button class="close-player" onclick="stopVideo()">×</button>
-        <video id="videoPlayer" controls autoplay></video>
-    </div>
-    <h2 id="playingTitle" style="margin-top:20px;"></h2>
-    <div id="errorMsg" class="status-msg"></div>
-</div>
 
 <script>
     const M3U_URL = 'https://iptv-org.github.io/iptv/languages/spa.m3u';
-    let allChannels = [];
-    let hlsInstance = null;
-    const video = document.getElementById('videoPlayer');
+    let canales = [];
+    const video = document.getElementById('video');
+    const hls = new Hls();
 
-    async function loadData() {
-        const grid = document.getElementById('channelGrid');
-        grid.innerHTML = "<p>Cargando servidores...</p>";
-        
-        try {
-            const res = await fetch(M3U_URL);
-            const text = await res.text();
-            parse(text);
-        } catch (err) {
-            grid.innerHTML = "<p>Error de conexión. Intenta recargar.</p>";
-        }
-    }
-
-    function parse(data) {
+    // Cargar Lista
+    fetch(M3U_URL).then(r => r.text()).then(data => {
         const lines = data.split('\n');
-        const categories = new Set();
-        
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].startsWith('#EXTINF')) {
-                const info = lines[i];
-                const name = info.split(',')[1] || "Canal Desconocido";
-                const logo = info.match(/tvg-logo="([^"]+)"/)?.[1] || '';
-                const group = info.match(/group-title="([^"]+)"/)?.[1] || 'Otros';
+            if (lines[i].includes('#EXTINF')) {
+                const nombre = lines[i].split(',')[1];
+                const logo = lines[i].match(/tvg-logo="([^"]+)"/)?.[1] || '';
                 const url = lines[i+1]?.trim();
-
-                if (url && url.startsWith('http')) {
-                    allChannels.push({ name, logo, url, group });
-                    categories.add(group);
-                }
+                if (url && url.startsWith('http')) canales.push({ nombre, logo, url });
             }
         }
-        fillCategories(categories);
-        render(allChannels);
-    }
+        mostrar(canales);
+    });
 
-    function fillCategories(cats) {
-        const bar = document.getElementById('categoryBar');
-        [...cats].slice(0, 12).forEach(c => {
-            const btn = document.createElement('button');
-            btn.className = 'cat-btn';
-            btn.innerText = c;
-            btn.onclick = (e) => filterByCat(c, e.target);
-            bar.appendChild(btn);
-        });
-    }
-
-    function render(list) {
-        document.getElementById('channelGrid').innerHTML = list.map(ch => `
-            <div class="card" onclick="startVideo('${ch.url}', '${ch.name}')">
-                <img src="${ch.logo}" onerror="this.src='https://via.placeholder.com/200x100/111/fff?text=TV'">
-                <div class="card-body"><h3>${ch.name}</h3></div>
+    function mostrar(lista) {
+        document.getElementById('grid').innerHTML = lista.slice(0, 100).map(c => `
+            <div class="card" onclick="ver('${c.url}', '${c.nombre}')">
+                <img src="${c.logo}" onerror="this.src='https://via.placeholder.com/100x50?text=TV'">
+                <p>${c.nombre}</p>
             </div>
         `).join('');
     }
 
-    function startVideo(url, name) {
-        document.getElementById('playerOverlay').style.display = 'flex';
-        document.getElementById('playingTitle').innerText = name;
-        document.getElementById('errorMsg').innerText = "Iniciando stream...";
-
-        // Limpiar instancia previa de HLS
-        if (hlsInstance) {
-            hlsInstance.destroy();
-        }
+    function ver(url, nombre) {
+        document.getElementById('player-container').style.display = 'flex';
+        document.getElementById('status').innerText = "Intentando conectar...";
+        
+        // --- LA SOLUCIÓN SIN INSTALAR NADA ---
+        // Usamos un proxy que añade las cabeceras CORS por nosotros
+        const proxy = "https://api.allorigins.win/raw?url=";
+        const finalUrl = url; // Prueba directo primero, si falla, usa: proxy + encodeURIComponent(url);
 
         if (Hls.isSupported()) {
-            hlsInstance = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 90
+            hls.loadSource(finalUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play();
+                document.getElementById('status').innerText = "Reproduciendo: " + nombre;
             });
-            hlsInstance.loadSource(url);
-            hlsInstance.attachMedia(video);
-            
-            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                document.getElementById('errorMsg').innerText = "Reproduciendo";
-                video.play().catch(e => {
-                    document.getElementById('errorMsg').innerText = "Haz clic en el play para iniciar";
-                });
+            hls.on(Hls.Events.ERROR, () => {
+                document.getElementById('status').innerText = "Error: Este canal bloquea la conexión externa.";
             });
-
-            hlsInstance.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    document.getElementById('errorMsg').innerText = "Error: El canal no responde o bloquea la conexión (CORS).";
-                }
-            });
-        } 
-        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Soporte nativo (Safari/iOS)
-            video.src = url;
-            video.play();
         }
     }
 
-    function stopVideo() {
-        document.getElementById('playerOverlay').style.display = 'none';
+    function cerrar() {
         video.pause();
-        if (hlsInstance) hlsInstance.stopLoad();
-        video.src = "";
+        hls.detachMedia();
+        document.getElementById('player-container').style.display = 'none';
     }
 
-    function filterByCat(cat, btn) {
-        document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const filtered = cat === 'Todos' ? allChannels : allChannels.filter(c => c.group === cat);
-        render(filtered);
-    }
-
-    document.getElementById('searchInput').addEventListener('input', (e) => {
-        const val = e.target.value.toLowerCase();
-        render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-    });
-
-    loadData();
+    document.getElementById('q').oninput = (e) => {
+        const busqueda = e.target.value.toLowerCase();
+        mostrar(canales.filter(c => c.nombre.toLowerCase().includes(busqueda)));
+    };
 </script>
 </body>
 </html>
